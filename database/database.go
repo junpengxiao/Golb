@@ -5,7 +5,9 @@ import (
 	"appengine/datastore"
 	"errors"
 	"github.com/junpengxiao/Golb/post"
+	"log"
 	"strings"
+	"time"
 )
 
 type PostItem struct {
@@ -14,7 +16,7 @@ type PostItem struct {
 }
 
 type PostContent struct {
-	content string `datastore:".noindex"`
+	content string `datastore:",noindex"`
 }
 
 var ErrPostExists = errors.New("Post with this title exists in datastore")
@@ -45,52 +47,49 @@ func convertPost(data *post.Post) (PostItem, PostContent, PostContent) {
 }
 
 //build a post from 3 parts stored in datastore
-func buildPost(item PostItem, content, contentmd PostContent) *post.Post {
-	data = new(post.Post{item.Title, item.Author, item.Tag, item.Snapshot,
-		content.content, contentmd.content, item.Date})
-	return data
+func buildPost(item *PostItem, content, contentmd *PostContent) *post.Post {
+	data := post.Post{item.Title, item.Author, item.Tag, item.Snapshot,
+		content.content, contentmd.content, item.Date}
+	return &data
 }
 
-//Put stored a post into datastore and return the content key. It split original data into 3 parts:
+//Put stored a post into datastore. It split original data into 3 parts:
 //PostItem, Content with HTML, Original Markdown Content. Then store them in a transaction
 //if isUpdate is true, then it is a update to original post. otherwise it is a new post.
-func Put(data *post.Post, isUpdate bool, ctx appengine.Context) (*datastore.Key, error) {
+func Put(data *post.Post, isUpdate bool, ctx appengine.Context) error {
 	itemkey, contentkey, contentmdkey := postkey(data.Title, ctx)
 	//first check whether post exists
-	tmp = new(PostItem)
+	tmp := new(PostItem)
 	if isUpdate {
 		if err := datastore.Get(ctx, itemkey, tmp); err != nil {
-			return nil, ErrPostNotExists
+			return ErrPostNotExists
 		}
 	} else {
 		if err := datastore.Get(ctx, itemkey, tmp); err != datastore.ErrNoSuchEntity {
-			return nil, ErrPostExists
+			return ErrPostExists
 		}
 	}
 	//convert data into 3 parts
 	item, content, contentmd := convertPost(data)
 	//store 3 parts into datastore in transaction
-	err := datastore.RunInTransaction(ctx, func(ctx context.Context) error {
-		if err := datastore.Put(ctx, itemkey, &item); err != nil {
+	err := datastore.RunInTransaction(ctx, func(ctx appengine.Context) error {
+		if _, err := datastore.Put(ctx, itemkey, &item); err != nil {
 			return err
 		}
-		if err := datastore.Put(ctx, contentkey, &content); err != nil {
+		if _, err := datastore.Put(ctx, contentkey, &content); err != nil {
 			return err
 		}
-		if err := datastore.Put(ctx, contentmdkey, &contentmd); err != nil {
+		if _, err := datastore.Put(ctx, contentmdkey, &contentmd); err != nil {
 			return err
 		}
 		return nil
 	}, nil)
-	if err != nil {
-		return nil, err
-	}
-	return contentkey, nil
+	return err
 }
 
 func Delete(title string, ctx appengine.Context) error {
 	itemkey, contentkey, contentmdkey := postkey(title, ctx)
-	return datastore.RunInTransaction(ctx, func(ctx content.Context) error {
+	return datastore.RunInTransaction(ctx, func(ctx appengine.Context) error {
 		if err := datastore.Delete(ctx, contentkey); err != nil {
 			return err
 		}
@@ -117,9 +116,12 @@ func Get(key string, ctx appengine.Context) (*post.Post, error) {
 		if err := datastore.Get(ctx, itemkey, item); err != nil {
 			return nil, err
 		}
+		log.Println("itemkey", itemkey)
+		log.Println("contentmdkey", contentmdkey)
 		if err := datastore.Get(ctx, contentmdkey, contentmd); err != nil {
 			return nil, err
 		}
+		log.Println("contentmd", contentmd)
 		return buildPost(item, content, contentmd), nil
 	}
 
@@ -146,7 +148,7 @@ func Get(key string, ctx appengine.Context) (*post.Post, error) {
 //offset has its own cost, so App should store this value, and use it for the same query next time.
 func Query(offset, limit int, encodedCursor string, ctx appengine.Context) ([]post.Post, bool, string, error) {
 	if limit <= 0 {
-		return nil, false, nil
+		return nil, false, "", nil
 	}
 	//limit = limit + 1. This is used for determin whether we need to display "next" button in our webpage
 	limit++
@@ -178,7 +180,7 @@ func Query(offset, limit int, encodedCursor string, ctx appengine.Context) ([]po
 		if err != nil {
 			return nil, false, "", err
 		}
-		ret := append(ret, post.Post{item.Title, item.Author, item.Tag, item.Snapshot, "", "", item.Date})
+		ret = append(ret, post.Post{item.Title, item.Author, item.Tag, item.Snapshot, "", "", item.Date})
 	}
 	if haveNext {
 		return ret[:limit-1], haveNext, startPosition, nil

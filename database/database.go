@@ -22,15 +22,17 @@ var ErrPostNotExists = errors.New("Post with this title doesn't exist in datasto
 
 const itemsuffix string = ".post"
 const mdsuffix string = ".text"
+const postkind string = "Post"
+const contentkind string = "Content"
 
 //postkey return 3 keys used to store one post:
 //itemkey: "title.post" used in PostItem.
 //contentkey: "title" used in full article content
 //contentmdkey: "title.text" used in content markdown format
 func postkey(title string, ctx appengine.Context) (*datastore.Key, *datastore.Key, *datastore.Key) {
-	itemkey := datastore.NewKey(ctx, "Post", title+itemsuffix, 0, nil)
-	contentkey := datastore.NewKey(ctx, "Content", title, 0, itemkey)
-	contentmdkey := datastore.NewKey(ctx, "Content", title+mdsuffix, 0, itemkey)
+	itemkey := datastore.NewKey(ctx, postkind, title+itemsuffix, 0, nil)
+	contentkey := datastore.NewKey(ctx, contentkind, title, 0, itemkey)
+	contentmdkey := datastore.NewKey(ctx, contentkind, title+mdsuffix, 0, itemkey)
 	return itemkey, contentkey, contentmdkey
 }
 
@@ -43,7 +45,7 @@ func convertPost(data *post.Post) (PostItem, PostContent, PostContent) {
 }
 
 //build a post from 3 parts stored in datastore
-func buildPost(item PostItem, content PostContent, contentmd PostContent) *post.Post {
+func buildPost(item PostItem, content, contentmd PostContent) *post.Post {
 	data = new(post.Post{item.Title, item.Author, item.Tag, item.Snapshot,
 		content.content, contentmd.content, item.Date})
 	return data
@@ -137,4 +139,50 @@ func Get(key string, ctx appengine.Context) (*post.Post, error) {
 		return nil, err
 	}
 	return buildPost(item, content, contentmd), nil
+}
+
+//Query first jumps 'offset' posts, then return 'limit' posts, along with a boolean value to denote
+//if database has more posts, a string to denote cursor for that query. Based on GAE document,
+//offset has its own cost, so App should store this value, and use it for the same query next time.
+func Query(offset, limit int, encodedCursor string, ctx appengine.Context) ([]post.Post, bool, string, error) {
+	if limit <= 0 {
+		return nil, false, nil
+	}
+	//limit = limit + 1. This is used for determin whether we need to display "next" button in our webpage
+	limit++
+	query := datastore.NewQuery(postkind).Order("-Date").Offset(offset).Limit(limit)
+
+	//if encodedCursor is provided, then try to use it instead of offset
+	if encodedCursor != "" {
+		cursor, err := datastore.DecodeCursor(encodedCursor)
+		if err == nil {
+			query = query.Start(cursor)
+		}
+	}
+	it := query.Run(ctx)
+	cursor, err := it.Cursor()
+	if err != nil {
+		return nil, false, "", err
+	}
+	startPosition := cursor.String()
+	//build return value
+	haveNext := true
+	ret := make([]post.Post, 0, limit)
+	for i := 0; i != limit; i++ {
+		var item PostItem
+		_, err := it.Next(&item)
+		if err == datastore.Done {
+			haveNext = false
+			break
+		}
+		if err != nil {
+			return nil, false, "", err
+		}
+		ret := append(ret, post.Post{item.Title, item.Author, item.Tag, item.Snapshot, "", "", item.Date})
+	}
+	if haveNext {
+		return ret[:limit-1], haveNext, startPosition, nil
+	} else {
+		return ret, haveNext, startPosition, nil
+	}
 }

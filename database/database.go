@@ -5,7 +5,7 @@ import (
 	"appengine/datastore"
 	"errors"
 	"github.com/junpengxiao/Golb/post"
-	"log"
+	//"log"
 	"strings"
 	"time"
 )
@@ -149,51 +149,40 @@ func Query(offset, limit int, encodedCursor string, ctx appengine.Context) ([]po
 	}
 	//limit = limit + 1. This is used for determin whether we need to display "next" button in our webpage
 	limit++
-	query := datastore.NewQuery(postkind)
-
-	result := make([]PostItem, 0, 10)
-	_, err := query.GetAll(ctx, &result)
+	query := datastore.NewQuery(postkind).Limit(limit).Order("-Date")
+	//if encodedCursor is provided, then try to use it instead of offset
+	if encodedCursor != "" {
+		cursor, err := datastore.DecodeCursor(encodedCursor)
+		if err == nil {
+			query = query.Start(cursor)
+		}
+	} else {
+		query = query.Offset(offset)
+	}
+	it := query.Run(ctx)
+	cursor, err := it.Cursor()
 	if err != nil {
-		log.Println("Error in Query ", err)
 		return nil, false, "", err
 	}
-	log.Println("Query Result ", result)
-	return nil, false, "", nil
-	/*
-		//if encodedCursor is provided, then try to use it instead of offset
-		if encodedCursor != "" {
-			cursor, err := datastore.DecodeCursor(encodedCursor)
-			if err == nil {
-				query = query.Start(cursor)
-			}
+	startPosition := cursor.String()
+	//build return value
+	haveNext := true
+	ret := make([]post.Post, 0, limit)
+	for i := 0; i != limit; i++ {
+		var item PostItem
+		_, err := it.Next(&item)
+		if err == datastore.Done {
+			haveNext = false
+			break
 		}
-		log.Println("query ", query)
-		it := query.Run(ctx)
-		cursor, err := it.Cursor()
 		if err != nil {
 			return nil, false, "", err
 		}
-		startPosition := cursor.String()
-		log.Println("start position", startPosition)
-		//build return value
-		haveNext := true
-		ret := make([]post.Post, 0, limit)
-		for i := 0; i != limit; i++ {
-			var item PostItem
-			_, err := it.Next(&item)
-			if err == datastore.Done {
-				haveNext = false
-				break
-			}
-			log.Println("Item list", item)
-			if err != nil {
-				return nil, false, "", err
-			}
-			ret = append(ret, post.Post{item.Title, item.Author, item.Tag, item.Snapshot, "", "", item.Date})
-		}
-		if haveNext {
-			return ret[:limit-1], haveNext, startPosition, nil
-		} else {
-			return ret, haveNext, startPosition, nil
-		}*/
+		ret = append(ret, post.Post{item.Title, item.Author, item.Tag, item.Snapshot, "", "", item.Date})
+	}
+	if haveNext {
+		return ret[:limit-1], haveNext, startPosition, nil
+	} else {
+		return ret, haveNext, startPosition, nil
+	}
 }

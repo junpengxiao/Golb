@@ -16,7 +16,7 @@ type PostItem struct {
 }
 
 type PostContent struct {
-	content string `datastore:",noindex"`
+	Content string `datastore:",noindex"`
 }
 
 var ErrPostExists = errors.New("Post with this title exists in datastore")
@@ -49,7 +49,7 @@ func convertPost(data *post.Post) (PostItem, PostContent, PostContent) {
 //build a post from 3 parts stored in datastore
 func buildPost(item *PostItem, content, contentmd *PostContent) *post.Post {
 	data := post.Post{item.Title, item.Author, item.Tag, item.Snapshot,
-		content.content, contentmd.content, item.Date}
+		content.Content, contentmd.Content, item.Date}
 	return &data
 }
 
@@ -87,22 +87,6 @@ func Put(data *post.Post, isUpdate bool, ctx appengine.Context) error {
 	return err
 }
 
-func Delete(title string, ctx appengine.Context) error {
-	itemkey, contentkey, contentmdkey := postkey(title, ctx)
-	return datastore.RunInTransaction(ctx, func(ctx appengine.Context) error {
-		if err := datastore.Delete(ctx, contentkey); err != nil {
-			return err
-		}
-		if err := datastore.Delete(ctx, contentmdkey); err != nil {
-			return err
-		}
-		if err := datastore.Delete(ctx, itemkey); err != nil {
-			return err
-		}
-		return nil
-	}, nil)
-}
-
 //Get returns a post from datastore. If the key is item key, it returns item part
 //if the key is content key, it returns item along with content part
 //if the key is contentmd key, it returns item along with original part
@@ -116,12 +100,9 @@ func Get(key string, ctx appengine.Context) (*post.Post, error) {
 		if err := datastore.Get(ctx, itemkey, item); err != nil {
 			return nil, err
 		}
-		log.Println("itemkey", itemkey)
-		log.Println("contentmdkey", contentmdkey)
 		if err := datastore.Get(ctx, contentmdkey, contentmd); err != nil {
 			return nil, err
 		}
-		log.Println("contentmd", contentmd)
 		return buildPost(item, content, contentmd), nil
 	}
 
@@ -143,6 +124,22 @@ func Get(key string, ctx appengine.Context) (*post.Post, error) {
 	return buildPost(item, content, contentmd), nil
 }
 
+func Delete(title string, ctx appengine.Context) error {
+	itemkey, contentkey, contentmdkey := postkey(title, ctx)
+	return datastore.RunInTransaction(ctx, func(ctx appengine.Context) error {
+		if err := datastore.Delete(ctx, contentkey); err != nil {
+			return err
+		}
+		if err := datastore.Delete(ctx, contentmdkey); err != nil {
+			return err
+		}
+		if err := datastore.Delete(ctx, itemkey); err != nil {
+			return err
+		}
+		return nil
+	}, nil)
+}
+
 //Query first jumps 'offset' posts, then return 'limit' posts, along with a boolean value to denote
 //if database has more posts, a string to denote cursor for that query. Based on GAE document,
 //offset has its own cost, so App should store this value, and use it for the same query next time.
@@ -152,39 +149,51 @@ func Query(offset, limit int, encodedCursor string, ctx appengine.Context) ([]po
 	}
 	//limit = limit + 1. This is used for determin whether we need to display "next" button in our webpage
 	limit++
-	query := datastore.NewQuery(postkind).Order("-Date").Offset(offset).Limit(limit)
+	query := datastore.NewQuery(postkind)
 
-	//if encodedCursor is provided, then try to use it instead of offset
-	if encodedCursor != "" {
-		cursor, err := datastore.DecodeCursor(encodedCursor)
-		if err == nil {
-			query = query.Start(cursor)
-		}
-	}
-	it := query.Run(ctx)
-	cursor, err := it.Cursor()
+	result := make([]PostItem, 0, 10)
+	_, err := query.GetAll(ctx, &result)
 	if err != nil {
+		log.Println("Error in Query ", err)
 		return nil, false, "", err
 	}
-	startPosition := cursor.String()
-	//build return value
-	haveNext := true
-	ret := make([]post.Post, 0, limit)
-	for i := 0; i != limit; i++ {
-		var item PostItem
-		_, err := it.Next(&item)
-		if err == datastore.Done {
-			haveNext = false
-			break
+	log.Println("Query Result ", result)
+	return nil, false, "", nil
+	/*
+		//if encodedCursor is provided, then try to use it instead of offset
+		if encodedCursor != "" {
+			cursor, err := datastore.DecodeCursor(encodedCursor)
+			if err == nil {
+				query = query.Start(cursor)
+			}
 		}
+		log.Println("query ", query)
+		it := query.Run(ctx)
+		cursor, err := it.Cursor()
 		if err != nil {
 			return nil, false, "", err
 		}
-		ret = append(ret, post.Post{item.Title, item.Author, item.Tag, item.Snapshot, "", "", item.Date})
-	}
-	if haveNext {
-		return ret[:limit-1], haveNext, startPosition, nil
-	} else {
-		return ret, haveNext, startPosition, nil
-	}
+		startPosition := cursor.String()
+		log.Println("start position", startPosition)
+		//build return value
+		haveNext := true
+		ret := make([]post.Post, 0, limit)
+		for i := 0; i != limit; i++ {
+			var item PostItem
+			_, err := it.Next(&item)
+			if err == datastore.Done {
+				haveNext = false
+				break
+			}
+			log.Println("Item list", item)
+			if err != nil {
+				return nil, false, "", err
+			}
+			ret = append(ret, post.Post{item.Title, item.Author, item.Tag, item.Snapshot, "", "", item.Date})
+		}
+		if haveNext {
+			return ret[:limit-1], haveNext, startPosition, nil
+		} else {
+			return ret, haveNext, startPosition, nil
+		}*/
 }

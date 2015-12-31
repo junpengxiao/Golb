@@ -1,3 +1,4 @@
+//database encapsulate the appengine/datastore to provide support to Golb
 package database
 
 import (

@@ -1,4 +1,4 @@
-//database encapsulate the appengine/datastore to provide support to Golb
+//database wraps the appengine/datastore to provide support to Golb
 package database
 
 import (
@@ -12,8 +12,9 @@ import (
 )
 
 type PostItem struct {
-	Title, Author, Tag, Snapshot string `datastore:",noindex"`
-	Date                         time.Time
+	Title, Author, Snapshot string `datastore:",noindex"`
+	Tag                     string
+	Date                    time.Time
 }
 
 type PostContent struct {

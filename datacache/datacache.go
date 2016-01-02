@@ -107,7 +107,7 @@ func Query(offset, limit int, ctx appengine.Context) ([]post.Post, bool, error) 
 			return nil, false, nil
 		} else {
 			//check if there is more items stored in DB. This is used to determin whether "next" button should be displayed on webpage
-			log.Println("Datacache Query,  Query with memcache hited No.2 checked (3 checks in total)")
+			log.Println("Datacache Query,  Query with memcache hit No.2 checked (3 checks in total)")
 			if ret[0].Content == haveNext {
 				ret[0].Content = ""
 				return ret, true, nil
@@ -119,13 +119,13 @@ func Query(offset, limit int, ctx appengine.Context) ([]post.Post, bool, error) 
 		//Try to retrive cursor from memcache to avoid Query Offset workload
 		if offset != 0 {
 			var cursor string
-			if _, err := memcache.Gob.Get(ctx, buildCursorKey(offset, limit), &ret); err == nil {
+			if _, err := memcache.Gob.Get(ctx, buildCursorKey(offset, limit), &cursor); err == nil {
 				//retrive the cursor successfully.
 				if ret, next, newcursor, err := database.Query(offset, limit, cursor, ctx); err != nil {
 					return nil, false, err
 				} else {
 					//update cursor value in case it was out of date because of new posts added.
-					log.Println("Datacache Query,  Query with cursor hited No.3 checked (3 checks in total)")
+					log.Println("Datacache Query,  Query with cursor hit No.3 checked (3 checks in total)")
 					updateQueryCache(offset, limit, ret, next, newcursor, ctx)
 					return ret, next, nil
 				}
@@ -135,7 +135,7 @@ func Query(offset, limit int, ctx appengine.Context) ([]post.Post, bool, error) 
 		if ret, next, newcursor, err := database.Query(offset, limit, "", ctx); err != nil {
 			return nil, false, err
 		} else {
-			log.Println("Datacache Query, Query with datastore hited, No.1 checked (3 checks in total)")
+			log.Println("Datacache Query, Query with datastore hit, No.1 checked (3 checks in total)")
 			updateQueryCache(offset, limit, ret, next, newcursor, ctx)
 			return ret, next, nil
 		}

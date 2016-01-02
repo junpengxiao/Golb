@@ -46,7 +46,7 @@ func TestPutAndGet(t *testing.T) {
 }
 
 //check if 2 slice of post.Post are same
-func check(arr1, arr2 []post.Post) bool {
+func issame(arr1, arr2 []post.Post) bool {
 	if len(arr1) != len(arr2) {
 		return false
 	}
@@ -108,7 +108,7 @@ func TestQuery(t *testing.T) {
 	if err2 != nil {
 		t.Fatal(err2)
 	}
-	if check(ret1, ret2) || next1 != next2 {
+	if !issame(ret1, ret2) || next1 != next2 {
 		t.Errorf("Test Query original and memcache aren't match, original: ", ret1, " memcache: ", ret2,
 			" original next: ", next1, " memcache next: ", next2)
 	}
@@ -119,7 +119,7 @@ func TestQuery(t *testing.T) {
 	if err3 != nil {
 		t.Fatal(err3)
 	}
-	if check(ret1, ret3) || next1 != next3 {
+	if !issame(ret1, ret3) || next1 != next3 {
 		t.Errorf("Test Query original and cursor aren't match, original: ", ret1, " cursor: ", ret3,
 			"original next: ", next1, "cursor next: ", next3)
 	}

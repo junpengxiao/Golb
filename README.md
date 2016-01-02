@@ -9,3 +9,4 @@
 	- [ ] Check the Content size before store them into memcache
 	- [ ] Compress items before store it?
 	- [ ] Add a link to flush entire cache
+	- [ ] Add expire time for post list items

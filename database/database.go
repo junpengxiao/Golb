@@ -43,16 +43,16 @@ func postkey(title string, ctx appengine.Context) (*datastore.Key, *datastore.Ke
 
 //convert a post into 3 parts stored in datastore
 func convertPost(data *post.Post) (PostItem, PostContent, PostContent) {
-	item := PostItem{data.Title, data.Author, data.Tag, data.Snapshot, data.Date}
-	content := PostContent{data.Content}
-	contentmd := PostContent{data.Original}
+	item := PostItem{Title: data.Title, Author: data.Author, Tag: data.Tag, Snapshot: data.Snapshot, Date: data.Date}
+	content := PostContent{Content: data.Content}
+	contentmd := PostContent{Content: data.Original}
 	return item, content, contentmd
 }
 
 //build a post from 3 parts stored in datastore
 func buildPost(item *PostItem, content, contentmd *PostContent) *post.Post {
-	data := post.Post{item.Title, item.Author, item.Tag, item.Snapshot,
-		content.Content, contentmd.Content, item.Date}
+	data := post.Post{Title: item.Title, Author: item.Author, Tag: item.Tag, Snapshot: item.Snapshot,
+		Content: content.Content, Original: contentmd.Content, Date: item.Date}
 	return &data
 }
 

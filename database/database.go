@@ -23,6 +23,7 @@ type PostContent struct {
 
 var ErrPostExists = errors.New("Post with this title exists in datastore")
 var ErrPostNotExists = errors.New("Post with this title doesn't exist in datastore")
+var ErrCannotUseCursor = errors.New("Fail to decode this cursor")
 
 const itemsuffix string = ".post"
 const mdsuffix string = ".text"
@@ -145,6 +146,7 @@ func Delete(title string, ctx appengine.Context) error {
 //Query first jumps 'offset' posts, then return 'limit' posts, along with a boolean value to denote
 //if database has more posts, a string to denote cursor for that query. Based on GAE document,
 //offset has its own cost, so App should store this value, and use it for the same query next time.
+//Otherwise, use empty string "" as encodedCursor, this function will do query with offset (has more workload)
 func Query(offset, limit int, encodedCursor string, ctx appengine.Context) ([]post.Post, bool, string, error) {
 	if limit <= 0 {
 		return nil, false, "", nil

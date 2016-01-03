@@ -5,6 +5,7 @@
 	- [ ] Query by tag
 	- [ ] use gob to achieve convert/build post
 	- [ ] Compress items before store it?
+	- [ ] Add required CSS/JS field
 - [ ] datacache
 	- [ ] Check the Content size before store them into memcache
 	- [ ] Compress items before store it?

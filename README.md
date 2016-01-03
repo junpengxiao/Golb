@@ -10,3 +10,5 @@
 	- [ ] Compress items before store it?
 	- [ ] Add a link to flush entire cache
 	- [ ] Add expire time for post list items
+- [ ] datastorage
+    - [ ] Provide the option "I don't use datastorage". So that user cannot save images and other medias in trade of no need to activate cloud storage 

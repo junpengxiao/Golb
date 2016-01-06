@@ -6,6 +6,7 @@ package postprocessor
 
 import (
 	"appengine"
+	"bytes"
 	"errors"
 	"github.com/junpengxiao/Golb/datacache"
 	"github.com/junpengxiao/Golb/post"
@@ -64,13 +65,31 @@ func Process(data *post.Post, originalName string, ctx appengine.Context) ([]str
 	}
 	//Build title,author,tag
 	prologue := strings.Index(post.Post.Original, keybegin)
-	epilogue := strings.LastIndex(post.Post.Original, keyend)
-	if prologue == -1 || epilogue == -1 || prologue > epilogue {
+	if prologue == -1 {
 		return nil, ErrPostMissBorE
 	}
+	epilogue := strings.LastIndex(post.Post.Original, keyend)
+	if epilogue == -1 {
+		epilogue = len(post.Post.Original)
+	}
+	post.Post.Date = time.Now().Round(time.Second)
 	post.Post.Title = extractValue(post.Post.Original[:prologue], keytitle)
+	if post.Post.Title == "" {
+		post.Post.Title = post.Post.Date.Format(post.TimeLayout)
+	}
 	post.Post.Author = extractValue(post.Post.Original[:prologue], keyauthor)
 	post.Post.Tag = extractValue(post.Post.Original[:prologue], keytag)
-	post.Post.Date = time.Now().Round(time.Second)
 
+	//escape SciJax from markdown content
+	markdown, sciChan, number := onepass(post.Post.Original)
+	post.Post.Content = contentmerge(blackfriday.MarkdownCommon(markdown), sciConvert(sciChan, number))
+	post.Post.Snapshot = formSnapshot(post.Post.Content)
+}
+
+const escapeMark = "$$"
+
+func onepass(str string) ([]byte, chan string, int) {
+	var markdown bytes.Buffer
+	sciChan := make(chan string)
+	num := 0
 }

@@ -13,12 +13,15 @@ import (
 	"github.com/russross/blackfriday"
 	"strings"
 	"time"
+
 )
 
 //Errs
-var ErrPostEmpty = errors.New("Original Post is empty")
-var ErrPostMissBorE = errors.New("Original Post format missed /begin or /end or they are in missorder")
-
+var (
+	ErrPostEmpty = errors.New("Original Post is empty")
+	ErrPostMissBorE = errors.New("Original Post format missed /begin or /end or they are in missorder")
+	ErrPostSciMarkNotMatch = errors.New("Original Post contants single $$, which is a SciMark that need to be paired")
+)
 /*
 	/title{Title}
 	/author{Author}
@@ -87,9 +90,72 @@ func Process(data *post.Post, originalName string, ctx appengine.Context) ([]str
 }
 
 const escapeMark = "$$"
+const escapeMarkB = []byte(escapeMark)
 
-func onepass(str string) ([]byte, chan string, int) {
+//onepass split original content into 2 parts, one for markdown, the other one for sci handler
+func onepass(str string) ([]byte, chan string, int, error) {
 	var markdown bytes.Buffer
 	sciChan := make(chan string)
-	num := 0
+	num, last, now := 0, 0, 0
+	for ;now = strings.Index(str[last:], escapeMark); now != -1 {
+		markdown.WriteString(str[last:now+len(escapeMark)])
+		last = strings.Index(str[now+len(escapeMark):],escapeMark)
+		if last == -1 {
+			return nil, nil, 0, ErrPostSciMarkNotMatch
+		}
+		sciChan <- str[now+len(escapeMark):last]
+		num++
+		last+=len(escapeMark)
+	}
+	return markdown.Bytes(), sciChan, num, nil
+}
+
+func sciConvert(sciChan chan string, num int) {
+	ret := make([]string, num)
+	for i:=0; i!=num; i++ {
+		go func(result *string, )
+	}
+}
+
+//contentmerge merge the result from markdown and sci string together
+func contentmerge(markdown []byte, sciStr []string) string {
+	var ret bytes.Buffer
+	last, now := 0, 0
+	for index := 0; now = bytes.Index(markdown[last:], escapeMarkB); now != -1 {
+		ret.WriteByte(markdown[last:now])
+		ret.WriteString(sciStr[index++])
+		last = now + len(escapeMarkB)
+	}
+	ret.WriteByte(markdown[last:])
+	return ret.String()
+} 
+
+//snapshot extract a snapshot for the html content
+func formSnapshot(str string) string{
+	var ret bytes.Buffer
+	head := regexp.MustCompile( `<h[1-6]>` )
+	headIndex := head.FindStringIndex(str)
+	bodyIndex := strings.Index(str, `<p>`)
+	if headIndex == nil || (bodyIndex!=-1 && headIndex[0]>bodyIndex) {
+		bodyend := strings.Index(str[bodyIndex:], `<\p>`)
+		if headIndex == nil {
+			return str[bodyIndex:bodyend+len(`<\p>`)]
+		} else {
+			ret.WriteString(str[bodyIndex:bodyend+len(`<\p>`)])
+			ret.WriteRune('\n')
+		}
+	}
+	//add head into snapshot
+	headmark := `<\` + str[headIndex[0]+1:headIndex[1]]
+	headend := strings.Index(str, headmark)
+	ret.WriteString(str[headIndex[0]:headend+len(headmark)])
+	//add <p> behind that head into snapshot
+	bodyIndex = strings.Index(str[headend:],`<p>`)
+	if bodyIndex == -1 {
+		return ret.String()
+	}
+	ret.WriteRune('\n')
+	bodyend := strings.Index(str[bodyIndex:], `<\p>`)
+	ret.WriteString(str[bodyIndex:bodyend+len(`<\p>`)])
+	return ret.String()
 }

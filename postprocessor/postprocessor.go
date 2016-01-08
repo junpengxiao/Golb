@@ -5,10 +5,8 @@
 package postprocessor
 
 import (
-	"appengine"
 	"bytes"
 	"errors"
-	"github.com/junpengxiao/Golb/datacache"
 	"github.com/junpengxiao/Golb/post"
 	"github.com/russross/blackfriday"
 	"strings"
@@ -17,10 +15,11 @@ import (
 
 //Errs
 var (
-	ErrPostEmpty = errors.New("Original Post is empty")
-	ErrPostMissBorE = errors.New("Original Post format missed /begin or /end or they are in missorder")
+	ErrPostEmpty           = errors.New("Original Post is empty")
+	ErrPostMissBorE        = errors.New("Original Post format missed /begin or /end or they are in missorder")
 	ErrPostSciMarkNotMatch = errors.New("Original Post contants single $$, which is a SciMark that need to be paired")
 )
+
 /*
 	/title{Title}
 	/author{Author}
@@ -30,14 +29,14 @@ var (
 	/end
 */
 const (
-	keytitle  = "/title"
-	keyauthor = "/author"
-	keytag    = "/tag"
-	keybegin  = "/begin"
-	keyend    = "/end"
-	defaultTitle = ""
+	keytitle      = "/title"
+	keyauthor     = "/author"
+	keytag        = "/tag"
+	keybegin      = "/begin"
+	keyend        = "/end"
+	defaultTitle  = ""
 	defaultAuthor = "Junpeng Xiao"
-	defaultTag = ""
+	defaultTag    = ""
 )
 
 func extractValue(content, target string) string {
@@ -58,10 +57,8 @@ func extractValue(content, target string) string {
 	return ""
 }
 
-//Process render the post original md content. Process returns a slice of strings
-//to represent which additional media is required to load in current post
-//currently, additional media is nil all the time
-func Process(data *post.Post, ctx appengine.Context) ([]string, error) {
+//Process render the post original md content. Process may returns erorr
+func Process(data *post.Post) ([]string, error) {
 	if post.Post.Original == "" {
 		return nil, ErrPostEmpty
 	}
@@ -88,14 +85,18 @@ func Process(data *post.Post, ctx appengine.Context) ([]string, error) {
 
 	//escape SciJax from markdown content
 	markdown, sciChan, number, err := onepass(post.Post.Original)
+	if err != nil {
+		return nil, err
+	}
 	post.Post.Content = contentmerge(blackfriday.MarkdownCommon(markdown), sciConvert(sciChan, number))
 	post.Post.Snapshot = formSnapshot(post.Post.Content)
 
-	return nil,nil
+	return nil, nil
 }
 
 //escapeMark is used to mark sci body in original markdown content
 const escapeMark = "$$"
+
 //same as escapeMark but with byte format
 const escapeMarkB = []byte(escapeMark)
 
@@ -111,39 +112,42 @@ func onepass(str string) ([]byte, chan string, int, error) {
 			break
 		}
 		//write "content$$" into buffer. $$ is the mark that a converted sci content need to be inserted
-		markdown.WriteString(str[last:now+len(escapeMark)])
-		if last = strings.Index(str[now+len(escapeMark):],escapeMark); last == -1 {
+		markdown.WriteString(str[last : now+len(escapeMark)])
+		if last = strings.Index(str[now+len(escapeMark):], escapeMark); last == -1 {
 			return nil, nil, 0, ErrPostSciMarkNotMatch
 		}
-		sciChan <- str[now+len(escapeMark):last]
+		sciChan <- str[now+len(escapeMark) : last]
 		num++
-		last+=len(escapeMark)
+		last += len(escapeMark)
 	}
 	return markdown.Bytes(), sciChan, num, nil
 }
 
+//used for maintain order in concurrent processing
 type sciConcurrent struct {
 	content string
-	index int
+	index   int
 }
 
-func sciCorrentConvert(str string) string{
-	return "$$"+str+"$$"
+//how to convert should be defined later. Currently it only support mathjax
+func sciCorrentConvert(str string) string {
+	return "$$" + str + "$$"
 }
 
+//convert sci body concurrently
 func sciConvert(sciChan chan string, num int) []string {
 	message := make(chan sciConcurrent)
-	for i:=0; i!=num; i++ {
+	for i := 0; i != num; i++ {
 		go func(str string, order int) {
 			var tmp sciConcurrent
 			tmp.content = sciConrrentConvert(str)
-			tmp.order = num
-			message<-tmp
+			tmp.order = order
+			message <- tmp
 		}(<-sciChan, i)
 	}
 	ret := make([]string, num)
-	for i:=0; i!=num; i++ {
-		tmp:=<-message
+	for i := 0; i != num; i++ {
+		tmp := <-message
 		ret[tmp.index] = tmp.content
 	}
 	return ret
@@ -153,41 +157,46 @@ func sciConvert(sciChan chan string, num int) []string {
 func contentmerge(markdown []byte, sciStr []string) string {
 	var ret bytes.Buffer
 	last, now := 0, 0
-	for index, now = 0, bytes.Index(markdown, escapeMarkB); now != -1; index++, now = bytes.Index(markdown[last:], escapeMarkB) {
+	for now != -1 {
+		now = bytes.Index(markdown[last:], escapeMarkB)
+		if now == -1 {
+			break
+		}
 		ret.WriteByte(markdown[last:now])
 		ret.WriteString(sciStr[index])
 		last = now + len(escapeMarkB)
+		index++
 	}
 	ret.WriteByte(markdown[last:])
 	return ret.String()
-} 
+}
 
 //snapshot extract a snapshot for the html content
-func formSnapshot(str string) string{
+func formSnapshot(str string) string {
 	var ret bytes.Buffer
-	head := regexp.MustCompile( `<h[1-6]>` )
+	head := regexp.MustCompile(`<h[1-6]>`)
 	headIndex := head.FindStringIndex(str)
 	bodyIndex := strings.Index(str, `<p>`)
-	if headIndex == nil || (bodyIndex!=-1 && headIndex[0]>bodyIndex) {
+	if headIndex == nil || (bodyIndex != -1 && headIndex[0] > bodyIndex) {
 		bodyend := strings.Index(str[bodyIndex:], `<\p>`)
 		if headIndex == nil {
-			return str[bodyIndex:bodyend+len(`<\p>`)]
+			return str[bodyIndex : bodyend+len(`<\p>`)]
 		} else {
-			ret.WriteString(str[bodyIndex:bodyend+len(`<\p>`)])
+			ret.WriteString(str[bodyIndex : bodyend+len(`<\p>`)])
 			ret.WriteRune('\n')
 		}
 	}
 	//add head into snapshot
 	headmark := `<\` + str[headIndex[0]+1:headIndex[1]]
 	headend := strings.Index(str, headmark)
-	ret.WriteString(str[headIndex[0]:headend+len(headmark)])
+	ret.WriteString(str[headIndex[0] : headend+len(headmark)])
+	ret.WriteRune('\n')
 	//add <p> behind that head into snapshot
-	bodyIndex = strings.Index(str[headend:],`<p>`)
+	bodyIndex = strings.Index(str[headend:], `<p>`)
 	if bodyIndex == -1 {
 		return ret.String()
 	}
-	ret.WriteRune('\n')
 	bodyend := strings.Index(str[bodyIndex:], `<\p>`)
-	ret.WriteString(str[bodyIndex:bodyend+len(`<\p>`)])
+	ret.WriteString(str[bodyIndex : bodyend+len(`<\p>`)])
 	return ret.String()
 }

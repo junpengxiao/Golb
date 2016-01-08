@@ -13,7 +13,6 @@ import (
 	"github.com/russross/blackfriday"
 	"strings"
 	"time"
-
 )
 
 //Errs
@@ -36,6 +35,9 @@ const (
 	keytag    = "/tag"
 	keybegin  = "/begin"
 	keyend    = "/end"
+	defaultTitle = ""
+	defaultAuthor = "Junpeng Xiao"
+	defaultTag = ""
 )
 
 func extractValue(content, target string) string {
@@ -56,17 +58,14 @@ func extractValue(content, target string) string {
 	return ""
 }
 
-//Process render the post original md content. if the originalName is provided,
-//that means this post is updated from an older post. Process returns a slice of strings
-//to represent which additional media is required to load into this function
-func Process(data *post.Post, originalName string, ctx appengine.Context) ([]string, error) {
-	if post.PostOriginal == "" {
+//Process render the post original md content. Process returns a slice of strings
+//to represent which additional media is required to load in current post
+//currently, additional media is nil all the time
+func Process(data *post.Post, ctx appengine.Context) ([]string, error) {
+	if post.Post.Original == "" {
 		return nil, ErrPostEmpty
 	}
-	if originalName != "" {
-		datacache.Delete(originalName, ctx)
-	}
-	//Build title,author,tag
+	//Build title,author,tag TODO: define prologue in comment
 	prologue := strings.Index(post.Post.Original, keybegin)
 	if prologue == -1 {
 		return nil, ErrPostMissBorE
@@ -76,31 +75,44 @@ func Process(data *post.Post, originalName string, ctx appengine.Context) ([]str
 		epilogue = len(post.Post.Original)
 	}
 	post.Post.Date = time.Now().Round(time.Second)
-	post.Post.Title = extractValue(post.Post.Original[:prologue], keytitle)
-	if post.Post.Title == "" {
-		post.Post.Title = post.Post.Date.Format(post.TimeLayout)
+	//default title is the post time
+	if post.Post.Title = extractValue(post.Post.Original[:prologue], keytitle); post.Post.Title == "" {
+		post.Post.Title = defaultTitle + post.Post.Date.Format(post.TimeLayout)
 	}
-	post.Post.Author = extractValue(post.Post.Original[:prologue], keyauthor)
-	post.Post.Tag = extractValue(post.Post.Original[:prologue], keytag)
+	if post.Post.Author = extractValue(post.Post.Original[:prologue], keyauthor); post.Post.Author == "" {
+		post.Post.Author = defaultAuthor
+	}
+	if post.Post.Tag = extractValue(post.Post.Original[:prologue], keytag); post.Post.Tag == "" {
+		post.Post.Tag = defaultTag
+	}
 
 	//escape SciJax from markdown content
-	markdown, sciChan, number := onepass(post.Post.Original)
+	markdown, sciChan, number, err := onepass(post.Post.Original)
 	post.Post.Content = contentmerge(blackfriday.MarkdownCommon(markdown), sciConvert(sciChan, number))
 	post.Post.Snapshot = formSnapshot(post.Post.Content)
+
+	return nil,nil
 }
 
+//escapeMark is used to mark sci body in original markdown content
 const escapeMark = "$$"
+//same as escapeMark but with byte format
 const escapeMarkB = []byte(escapeMark)
 
 //onepass split original content into 2 parts, one for markdown, the other one for sci handler
+//sci handler is a format that I defined for scientitic ussage like graph, math, codes, etc.
+//currently math only
 func onepass(str string) ([]byte, chan string, int, error) {
 	var markdown bytes.Buffer
 	sciChan := make(chan string)
 	num, last, now := 0, 0, 0
-	for ;now = strings.Index(str[last:], escapeMark); now != -1 {
+	for now != -1 {
+		if now = strings.Index(str[last:], escapeMark); now == -1 {
+			break
+		}
+		//write "content$$" into buffer. $$ is the mark that a converted sci content need to be inserted
 		markdown.WriteString(str[last:now+len(escapeMark)])
-		last = strings.Index(str[now+len(escapeMark):],escapeMark)
-		if last == -1 {
+		if last = strings.Index(str[now+len(escapeMark):],escapeMark); last == -1 {
 			return nil, nil, 0, ErrPostSciMarkNotMatch
 		}
 		sciChan <- str[now+len(escapeMark):last]
@@ -110,20 +122,40 @@ func onepass(str string) ([]byte, chan string, int, error) {
 	return markdown.Bytes(), sciChan, num, nil
 }
 
-func sciConvert(sciChan chan string, num int) {
+type sciConcurrent struct {
+	content string
+	index int
+}
+
+func sciCorrentConvert(str string) string{
+	return "$$"+str+"$$"
+}
+
+func sciConvert(sciChan chan string, num int) []string {
+	message := make(chan sciConcurrent)
+	for i:=0; i!=num; i++ {
+		go func(str string, order int) {
+			var tmp sciConcurrent
+			tmp.content = sciConrrentConvert(str)
+			tmp.order = num
+			message<-tmp
+		}(<-sciChan, i)
+	}
 	ret := make([]string, num)
 	for i:=0; i!=num; i++ {
-		go func(result *string, )
+		tmp:=<-message
+		ret[tmp.index] = tmp.content
 	}
+	return ret
 }
 
 //contentmerge merge the result from markdown and sci string together
 func contentmerge(markdown []byte, sciStr []string) string {
 	var ret bytes.Buffer
 	last, now := 0, 0
-	for index := 0; now = bytes.Index(markdown[last:], escapeMarkB); now != -1 {
+	for index, now = 0, bytes.Index(markdown, escapeMarkB); now != -1; index++, now = bytes.Index(markdown[last:], escapeMarkB) {
 		ret.WriteByte(markdown[last:now])
-		ret.WriteString(sciStr[index++])
+		ret.WriteString(sciStr[index])
 		last = now + len(escapeMarkB)
 	}
 	ret.WriteByte(markdown[last:])

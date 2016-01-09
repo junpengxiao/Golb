@@ -47,9 +47,11 @@ func extractValue(content, target string) string {
 		start := index + len(target)
 		for ; start < len(content) && content[start] != '{'; start++ {
 		} //find first {
+		start++
 		for ; start < len(content) && (content[start] == ' ' || content[start] == '\t'); start++ {
 		} //escape empty character
 		end := strings.Index(content[start:], "}")
+		end += start
 		for ; end-1 > start && (content[end-1] == ' ' || content[end-1] == '\t'); end-- {
 		}
 		if start < end {
@@ -86,11 +88,11 @@ func Process(data *post.Post) error {
 	}
 
 	//escape SciJax from markdown content
-	markdown, sciChan, number, err := onepass(data.Original)
+	markdown, sciSlice, err := onepass(data.Original[prologue+len(keybegin) : epilogue])
 	if err != nil {
 		return err
 	}
-	data.Content = contentmerge(blackfriday.MarkdownCommon(markdown), sciConvert(sciChan, number))
+	data.Content = contentmerge(blackfriday.MarkdownCommon(markdown), sciConvert(sciSlice))
 	data.Snapshot = formSnapshot(data.Content)
 
 	return nil
@@ -105,10 +107,10 @@ var escapeMarkB = []byte(escapeMark)
 //onepass split original content into 2 parts, one for markdown, the other one for sci handler
 //sci handler is a format that I defined for scientitic ussage like graph, math, codes, etc.
 //currently math only
-func onepass(str string) ([]byte, chan string, int, error) {
+func onepass(str string) ([]byte, []string, error) {
 	var markdown bytes.Buffer
-	sciChan := make(chan string)
-	num, last, now := 0, 0, 0
+	sciSlice := make([]string, 0, 1024) //1024 is just an estimate about how many sci part may exists
+	last, now := 0, 0
 	for now != -1 {
 		if now = strings.Index(str[last:], escapeMark); now == -1 {
 			break
@@ -117,14 +119,13 @@ func onepass(str string) ([]byte, chan string, int, error) {
 		//write "content$$" into buffer. $$ is the mark that a converted sci content need to be inserted
 		markdown.WriteString(str[last : now+len(escapeMark)])
 		if last = strings.Index(str[now+len(escapeMark):], escapeMark); last == -1 {
-			return nil, nil, 0, ErrPostSciMarkNotMatch
+			return nil, nil, ErrPostSciMarkNotMatch
 		}
-		last += now
-		go sciChan <- str[now+len(escapeMark) : last]
-		num++
+		last += (now + len(escapeMark))
+		sciSlice = append(sciSlice, str[now+len(escapeMark):last])
 		last += len(escapeMark)
 	}
-	return markdown.Bytes(), sciChan, num, nil
+	return markdown.Bytes(), sciSlice, nil
 }
 
 //used for maintain order in concurrent processing
@@ -139,18 +140,18 @@ func sciConrrentConvert(str string) string {
 }
 
 //convert sci body concurrently
-func sciConvert(sciChan chan string, num int) []string {
+func sciConvert(sciSlice []string) []string {
 	message := make(chan sciConcurrent)
-	for i := 0; i != num; i++ {
+	for i := 0; i != len(sciSlice); i++ {
 		go func(str string, order int) {
 			var tmp sciConcurrent
 			tmp.content = sciConrrentConvert(str)
 			tmp.index = order
 			message <- tmp
-		}(<-sciChan, i)
+		}(sciSlice[i], i)
 	}
-	ret := make([]string, num)
-	for i := 0; i != num; i++ {
+	ret := make([]string, len(sciSlice))
+	for i := 0; i != len(sciSlice); i++ {
 		tmp := <-message
 		ret[tmp.index] = tmp.content
 	}
@@ -162,10 +163,10 @@ func contentmerge(markdown []byte, sciStr []string) string {
 	var ret bytes.Buffer
 	last, now, index := 0, 0, 0
 	for now != -1 {
-		now = bytes.Index(markdown[last:], escapeMarkB)
-		if now == -1 {
+		if now = bytes.Index(markdown[last:], escapeMarkB); now == -1 {
 			break
 		}
+		now += last
 		ret.Write(markdown[last:now])
 		ret.WriteString(sciStr[index])
 		last = now + len(escapeMarkB)
@@ -182,7 +183,7 @@ func formSnapshot(str string) string {
 	headIndex := head.FindStringIndex(str)
 	bodyIndex := strings.Index(str, `<p>`)
 	if headIndex == nil || (bodyIndex != -1 && headIndex[0] > bodyIndex) {
-		bodyend := strings.Index(str[bodyIndex:], `</p>`)
+		bodyend := strings.Index(str[bodyIndex:], `</p>`) + bodyIndex
 		if headIndex == nil {
 			return str[bodyIndex : bodyend+len(`</p>`)]
 		} else {
@@ -196,11 +197,11 @@ func formSnapshot(str string) string {
 	ret.WriteString(str[headIndex[0] : headend+len(headmark)])
 	ret.WriteRune('\n')
 	//add <p> behind that head into snapshot
-	bodyIndex = strings.Index(str[headend:], `<p>`)
+	bodyIndex = strings.Index(str[headend:], `<p>`) + headend
 	if bodyIndex == -1 {
 		return ret.String()
 	}
-	bodyend := strings.Index(str[bodyIndex:], `</p>`)
+	bodyend := strings.Index(str[bodyIndex:], `</p>`) + bodyIndex
 	ret.WriteString(str[bodyIndex : bodyend+len(`</p>`)])
 	return ret.String()
 }

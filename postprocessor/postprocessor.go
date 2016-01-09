@@ -9,6 +9,8 @@ import (
 	"errors"
 	"github.com/junpengxiao/Golb/post"
 	"github.com/russross/blackfriday"
+	//"log"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -29,11 +31,11 @@ var (
 	/end
 */
 const (
-	keytitle      = "/title"
-	keyauthor     = "/author"
-	keytag        = "/tag"
-	keybegin      = "/begin"
-	keyend        = "/end"
+	keytitle      = `\title`
+	keyauthor     = `\author`
+	keytag        = `\tag`
+	keybegin      = `\begin`
+	keyend        = `\end`
 	defaultTitle  = ""
 	defaultAuthor = "Junpeng Xiao"
 	defaultTag    = ""
@@ -47,7 +49,7 @@ func extractValue(content, target string) string {
 		} //find first {
 		for ; start < len(content) && (content[start] == ' ' || content[start] == '\t'); start++ {
 		} //escape empty character
-		end := strings.index(content[start:], "}")
+		end := strings.Index(content[start:], "}")
 		for ; end-1 > start && (content[end-1] == ' ' || content[end-1] == '\t'); end-- {
 		}
 		if start < end {
@@ -58,47 +60,47 @@ func extractValue(content, target string) string {
 }
 
 //Process render the post original md content. Process may returns erorr
-func Process(data *post.Post) ([]string, error) {
-	if post.Post.Original == "" {
-		return nil, ErrPostEmpty
+func Process(data *post.Post) error {
+	if data.Original == "" {
+		return ErrPostEmpty
 	}
 	//Build title,author,tag TODO: define prologue in comment
-	prologue := strings.Index(post.Post.Original, keybegin)
+	prologue := strings.Index(data.Original, keybegin)
 	if prologue == -1 {
-		return nil, ErrPostMissBorE
+		return ErrPostMissBorE
 	}
-	epilogue := strings.LastIndex(post.Post.Original, keyend)
+	epilogue := strings.LastIndex(data.Original, keyend)
 	if epilogue == -1 {
-		epilogue = len(post.Post.Original)
+		epilogue = len(data.Original)
 	}
-	post.Post.Date = time.Now().Round(time.Second)
+	data.Date = time.Now().Round(time.Second)
 	//default title is the post time
-	if post.Post.Title = extractValue(post.Post.Original[:prologue], keytitle); post.Post.Title == "" {
-		post.Post.Title = defaultTitle + post.Post.Date.Format(post.TimeLayout)
+	if data.Title = extractValue(data.Original[:prologue], keytitle); data.Title == "" {
+		data.Title = defaultTitle + data.Date.Format(post.TimeLayout)
 	}
-	if post.Post.Author = extractValue(post.Post.Original[:prologue], keyauthor); post.Post.Author == "" {
-		post.Post.Author = defaultAuthor
+	if data.Author = extractValue(data.Original[:prologue], keyauthor); data.Author == "" {
+		data.Author = defaultAuthor
 	}
-	if post.Post.Tag = extractValue(post.Post.Original[:prologue], keytag); post.Post.Tag == "" {
-		post.Post.Tag = defaultTag
+	if data.Tag = extractValue(data.Original[:prologue], keytag); data.Tag == "" {
+		data.Tag = defaultTag
 	}
 
 	//escape SciJax from markdown content
-	markdown, sciChan, number, err := onepass(post.Post.Original)
+	markdown, sciChan, number, err := onepass(data.Original)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	post.Post.Content = contentmerge(blackfriday.MarkdownCommon(markdown), sciConvert(sciChan, number))
-	post.Post.Snapshot = formSnapshot(post.Post.Content)
+	data.Content = contentmerge(blackfriday.MarkdownCommon(markdown), sciConvert(sciChan, number))
+	data.Snapshot = formSnapshot(data.Content)
 
-	return nil, nil
+	return nil
 }
 
 //escapeMark is used to mark sci body in original markdown content
 const escapeMark = "$$"
 
 //same as escapeMark but with byte format
-const escapeMarkB = []byte(escapeMark)
+var escapeMarkB = []byte(escapeMark)
 
 //onepass split original content into 2 parts, one for markdown, the other one for sci handler
 //sci handler is a format that I defined for scientitic ussage like graph, math, codes, etc.
@@ -111,12 +113,14 @@ func onepass(str string) ([]byte, chan string, int, error) {
 		if now = strings.Index(str[last:], escapeMark); now == -1 {
 			break
 		}
+		now += last
 		//write "content$$" into buffer. $$ is the mark that a converted sci content need to be inserted
 		markdown.WriteString(str[last : now+len(escapeMark)])
 		if last = strings.Index(str[now+len(escapeMark):], escapeMark); last == -1 {
 			return nil, nil, 0, ErrPostSciMarkNotMatch
 		}
-		sciChan <- str[now+len(escapeMark) : last]
+		last += now
+		go sciChan <- str[now+len(escapeMark) : last]
 		num++
 		last += len(escapeMark)
 	}
@@ -130,7 +134,7 @@ type sciConcurrent struct {
 }
 
 //how to convert should be defined later. Currently it only support mathjax
-func sciCorrentConvert(str string) string {
+func sciConrrentConvert(str string) string {
 	return "$$" + str + "$$"
 }
 
@@ -141,7 +145,7 @@ func sciConvert(sciChan chan string, num int) []string {
 		go func(str string, order int) {
 			var tmp sciConcurrent
 			tmp.content = sciConrrentConvert(str)
-			tmp.order = order
+			tmp.index = order
 			message <- tmp
 		}(<-sciChan, i)
 	}
@@ -156,18 +160,18 @@ func sciConvert(sciChan chan string, num int) []string {
 //contentmerge merge the result from markdown and sci string together
 func contentmerge(markdown []byte, sciStr []string) string {
 	var ret bytes.Buffer
-	last, now := 0, 0
+	last, now, index := 0, 0, 0
 	for now != -1 {
 		now = bytes.Index(markdown[last:], escapeMarkB)
 		if now == -1 {
 			break
 		}
-		ret.WriteByte(markdown[last:now])
+		ret.Write(markdown[last:now])
 		ret.WriteString(sciStr[index])
 		last = now + len(escapeMarkB)
 		index++
 	}
-	ret.WriteByte(markdown[last:])
+	ret.Write(markdown[last:])
 	return ret.String()
 }
 
@@ -178,16 +182,16 @@ func formSnapshot(str string) string {
 	headIndex := head.FindStringIndex(str)
 	bodyIndex := strings.Index(str, `<p>`)
 	if headIndex == nil || (bodyIndex != -1 && headIndex[0] > bodyIndex) {
-		bodyend := strings.Index(str[bodyIndex:], `<\p>`)
+		bodyend := strings.Index(str[bodyIndex:], `</p>`)
 		if headIndex == nil {
-			return str[bodyIndex : bodyend+len(`<\p>`)]
+			return str[bodyIndex : bodyend+len(`</p>`)]
 		} else {
-			ret.WriteString(str[bodyIndex : bodyend+len(`<\p>`)])
+			ret.WriteString(str[bodyIndex : bodyend+len(`</p>`)])
 			ret.WriteRune('\n')
 		}
 	}
 	//add head into snapshot
-	headmark := `<\` + str[headIndex[0]+1:headIndex[1]]
+	headmark := `</` + str[headIndex[0]+1:headIndex[1]]
 	headend := strings.Index(str, headmark)
 	ret.WriteString(str[headIndex[0] : headend+len(headmark)])
 	ret.WriteRune('\n')
@@ -196,7 +200,7 @@ func formSnapshot(str string) string {
 	if bodyIndex == -1 {
 		return ret.String()
 	}
-	bodyend := strings.Index(str[bodyIndex:], `<\p>`)
-	ret.WriteString(str[bodyIndex : bodyend+len(`<\p>`)])
+	bodyend := strings.Index(str[bodyIndex:], `</p>`)
+	ret.WriteString(str[bodyIndex : bodyend+len(`</p>`)])
 	return ret.String()
 }

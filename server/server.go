@@ -2,7 +2,7 @@ package server
 
 import (
 	"appengine"
-	"github.com/junpengxiao/Golb/database"
+	"fmt"
 	"github.com/junpengxiao/Golb/datacache"
 	"github.com/junpengxiao/Golb/post"
 	"github.com/junpengxiao/Golb/postprocessor"
@@ -21,7 +21,7 @@ func init() {
 	http.HandleFunc("/admin/newpost", newpost)       //show editor to add new post
 	http.HandleFunc("/admin/uploadpost", uploadpost) //upload post
 	http.HandleFunc("/home", home)                   //homepage
-	http.HandleFunc("/post", post)                   //display one post
+	http.HandleFunc("/post", displaypost)            //display one post
 	http.HandleFunc("/", home)                       //default handler, homepage
 }
 
@@ -31,22 +31,22 @@ func home(w http.ResponseWriter, r *http.Request) {
 	if err != nil || page < 0 {
 		page = 0
 	}
-	result, err := datacache.Query(page*itemsEachPage, itemsEachPage, ctx)
+	result, _, err := datacache.Query(page*itemsEachPage, itemsEachPage, ctx)
 	if err != nil {
-		w.Write(err)
+		fmt.Fprint(w, err)
 	} else {
-		w.Write(result)
+		fmt.Fprint(w, result)
 	}
 }
 
-func post(w http.ResponseWriter, r *http.Request) {
+func displaypost(w http.ResponseWriter, r *http.Request) {
 	ctx := appengine.NewContext(r)
 	title := r.FormValue(titlekey)
 	result, err := datacache.Get(title, ctx)
 	if err != nil {
-		w.Write(err)
+		fmt.Fprint(w, err)
 	} else {
-		w.Write(result)
+		fmt.Fprint(w, result)
 	}
 }
 
@@ -55,14 +55,14 @@ func uploadpost(w http.ResponseWriter, r *http.Request) {
 	var data post.Post
 	data.Original = r.FormValue(originalkey)
 	if err := postprocessor.Process(&data); err != nil {
-		w.Write(err)
+		fmt.Fprint(w, err)
 		return
 	}
 	if err := datacache.Put(&data, false, ctx); err != nil {
-		w.Write(err)
+		fmt.Fprint(w, err)
 		return
 	} else {
-		http.Redirect(w, r, "/", http.StatusAccepted)
+		http.Redirect(w, r, "/", http.StatusFound)
 	}
 }
 
@@ -78,6 +78,5 @@ const testpost = `
 `
 
 func newpost(w http.ResponseWriter, r *http.Request) {
-	ctx := appengine.NewContext(r)
-	w.Write(testpost)
+	fmt.Fprint(w, testpost)
 }

@@ -17,6 +17,7 @@ const itemsuffix = ".post" //again, no need to be same as corresponding varible 
 //important to update that snapshot immediately, user should use a special
 //link to flush the entire memcache. Nonetheless, new snapshot should be updated within 1 week
 func Put(data *post.Post, isUpdate bool, ctx appengine.Context) error {
+	memcache.Flush(ctx)
 	if !isUpdate {
 		return database.Put(data, isUpdate, ctx)
 	} else {
@@ -95,6 +96,7 @@ func updateQueryCache(offset, limit int, ret []post.Post, next bool, cursor stri
 //Notice that the cursor string returns from offset with 0 will not be stored. Since it can not reduce the work load
 
 func Query(offset, limit int, ctx appengine.Context) ([]post.Post, bool, error) {
+	log.Println("In Query: ", offset, "  ", limit)
 	//check offset and limit
 	if offset < 0 || limit <= 0 {
 		return nil, false, nil

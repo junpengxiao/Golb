@@ -52,7 +52,7 @@
         {{else}}
         <dt><a href="post?title={{$element.Title}}">{{$element.Title}}</a></dt>
         {{end}}
-        <dd>{{$element.SnapShot}}</dd>
+        <dd>{{$element.Snapshot}}</dd>
         {{end}}
     </dl>
 </div>
@@ -62,6 +62,7 @@
 <article>
     {{range $index, $element := .Posts}}
     {{$element.Content}}
+    {{end}}
 </article>
 {{end}}
 

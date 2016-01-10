@@ -8,6 +8,7 @@ import (
 	"github.com/junpengxiao/Golb/postprocessor"
 	"net/http"
 	"strconv"
+	"template"
 )
 
 const (
@@ -31,11 +32,11 @@ func home(w http.ResponseWriter, r *http.Request) {
 	if err != nil || page < 0 {
 		page = 0
 	}
-	result, _, err := datacache.Query(page*itemsEachPage, itemsEachPage, ctx)
+	result, haveNext, err := datacache.Query(page*itemsEachPage, itemsEachPage, ctx)
 	if err != nil {
 		fmt.Fprint(w, err)
 	} else {
-		fmt.Fprint(w, result)
+		template.PostList(result, haveNext, w)
 	}
 }
 
@@ -46,7 +47,7 @@ func displaypost(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		fmt.Fprint(w, err)
 	} else {
-		fmt.Fprint(w, result)
+		template.DisplayPost(result, w)
 	}
 }
 
